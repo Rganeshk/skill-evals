@@ -38,7 +38,7 @@ Inspired by [JiyangZhang/skilltest](https://github.com/JiyangZhang/skilltest), b
 ```
 skill-evals/
 ├── docker/
-│   ├── Dockerfile.claude        # Base image: Python 3.12 + OpenHands SDK
+│   ├── Dockerfile.openhands     # Base image: Python 3.12 + OpenHands SDK
 │   ├── entrypoint.sh            # Launches run_agent.py, captures output
 │   └── run_agent.py             # OpenHands agent runner + event serializer
 ├── skills/
@@ -74,7 +74,7 @@ skill-evals/
 
 ```bash
 # Build images
-docker build -t openhands-eval:latest -f docker/Dockerfile.claude docker/
+docker build -t openhands-eval:latest -f docker/Dockerfile.openhands docker/
 docker build -t openhands-eval-github:latest -f skills/github-skill/Dockerfile .
 
 # Run one test

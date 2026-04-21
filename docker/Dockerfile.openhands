@@ -2,7 +2,7 @@
 # Contains: Python 3.12, git, tmux, and the OpenHands SDK + tools.
 #
 # Build from repo root:
-#   docker build -t openhands-eval:latest -f docker/Dockerfile.claude docker/
+#   docker build -t openhands-eval:latest -f docker/Dockerfile.openhands docker/
 #
 # Note: The PyPI umbrella package `openhands-ai` currently fails pip resolution
 # (e2b / browsergym conflicts). Install `openhands-sdk` + `openhands-tools` instead.

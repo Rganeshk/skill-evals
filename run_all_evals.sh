@@ -28,7 +28,7 @@ REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Build Docker images ─────────────────────────────────────────────
 echo "=== Building base image ==="
-docker build -t openhands-eval:latest -f "$REPO_ROOT/docker/Dockerfile.claude" "$REPO_ROOT/docker/"
+docker build -t openhands-eval:latest -f "$REPO_ROOT/docker/Dockerfile.openhands" "$REPO_ROOT/docker/"
 
 echo ""
 echo "=== Building skill image ==="
