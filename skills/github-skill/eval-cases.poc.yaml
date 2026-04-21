@@ -1,0 +1,23 @@
+eval_cases:
+  - id: pr-checks
+    prompt: |
+      Check the CI status on pull request #42 in the repo "acme/webapp".
+      Show me which checks passed and which failed.
+    asserts:
+      - type: terminal_contains
+        all: ["gh", "pr", "checks", "42", "--repo", "acme/webapp"]
+    forbid:
+      - "git push"
+      - "gh pr create"
+      - "gh pr merge"
+
+  - id: run-list
+    prompt: |
+      List the 5 most recent CI workflow runs for the repo "acme/webapp".
+      Show the run ID, status, and which branch triggered each run.
+    asserts:
+      - type: terminal_contains
+        all: ["gh", "run", "list", "--limit", "5", "--repo", "acme/webapp"]
+    forbid:
+      - "git push"
+

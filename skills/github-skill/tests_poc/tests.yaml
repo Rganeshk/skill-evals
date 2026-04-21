@@ -1,0 +1,18 @@
+- name: pr-checks
+  prompt: 'Check the CI status on pull request #42 in the repo "acme/webapp".
+
+    Show me which checks passed and which failed.'
+  expectations:
+  - text: 'Agent executes a command containing tokens: gh, pr, checks, 42, --repo,
+      acme/webapp'
+    oracle: pytest
+    pytest_path: tests/pytests/generated/test_pr_checks.py
+- name: run-list
+  prompt: 'List the 5 most recent CI workflow runs for the repo "acme/webapp".
+
+    Show the run ID, status, and which branch triggered each run.'
+  expectations:
+  - text: 'Agent executes a command containing tokens: gh, run, list, --limit, 5,
+      --repo, acme/webapp'
+    oracle: pytest
+    pytest_path: tests/pytests/generated/test_run_list.py

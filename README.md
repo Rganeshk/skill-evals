@@ -79,6 +79,54 @@ export GITHUB_TOKEN="ghp_..."
 ./run_all_evals.sh skills/github-skill
 ```
 
+## POC: Generate tests and run them
+
+This repo includes a **proof-of-concept** generator that can produce a parallel test suite from a structured YAML spec, **without modifying** the existing `skills/*/tests/` test cases.
+
+### 1) Define eval cases (POC)
+
+Create a file like `skills/<skill>/eval-cases.poc.yaml`:
+
+```yaml
+eval_cases:
+  - id: pr-checks
+    prompt: |
+      Check the CI status on pull request #42 in the repo "acme/webapp".
+      Show me which checks passed and which failed.
+    asserts:
+      - type: terminal_contains
+        all: ["gh", "pr", "checks", "42", "--repo", "acme/webapp"]
+    forbid:
+      - "git push"
+      - "gh pr merge"
+```
+
+### 2) Generate tests into a separate folder
+
+```bash
+python tools/gen_skill_tests.py \
+  --skill-dir skills/github-skill \
+  --cases-yaml skills/github-skill/eval-cases.poc.yaml \
+  --out-dir skills/github-skill/tests_poc
+```
+
+This writes:
+- `skills/github-skill/tests_poc/tests.yaml`
+- `skills/github-skill/tests_poc/pytests/<pkg>/test_*.py`
+
+### 3) Run generated tests (agent + grading in Docker)
+
+```bash
+export LLM_API_KEY="sk-..."
+export GITHUB_TOKEN="ghp_..."   # optional but recommended for `gh` auth
+
+./run_eval_generated.sh skills/github-skill pr-checks
+# or:
+./run_all_evals_generated.sh skills/github-skill
+```
+
+**Note:** the runner uses host Python only to read `tests_poc/tests.yaml` and extract prompts/test names. The **agent** and **pytest grading** run in Docker. You can confirm by checking `grading.txt` output for `platform linux`.
+
 ### Results
 
 After each run, results are saved to `skills/<skill>/eval-results/<test-name>/`:
