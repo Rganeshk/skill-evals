@@ -1,0 +1,56 @@
+# Test cases for the GitHub skill (steipete/github) running on OpenHands agent.
+#
+# Each test gives the OpenHands agent a realistic GitHub task with the
+# skill loaded into its context, then verifies it used the correct
+# `gh` CLI commands by inspecting the event log.
+#
+# Naming convention: test name maps directly to pytest file.
+#   name: pr-checks  →  tests/pytests/github/test_pr_checks.py
+
+- name: pr-checks
+  prompt: |
+    Check the CI status on pull request #42 in the repo "acme/webapp".
+    Show me which checks passed and which failed.
+  expectations:
+    - text: "Agent executes `gh pr checks 42 --repo acme/webapp`"
+      oracle: pytest
+      pytest_path: tests/pytests/github/test_pr_checks.py
+    - text: "No forbidden remote operations (push, pr create, pr merge)"
+      oracle: pytest
+      pytest_path: tests/pytests/github/test_pr_checks.py::test_no_forbidden_remote_ops
+
+- name: run-list
+  prompt: |
+    List the 5 most recent CI workflow runs for the repo "acme/webapp".
+    Show the run ID, status, and which branch triggered each run.
+  expectations:
+    - text: "Agent executes `gh run list --limit 5 --repo acme/webapp`"
+      oracle: pytest
+      pytest_path: tests/pytests/github/test_run_list.py
+
+- name: run-view-failed
+  prompt: |
+    Workflow run 12345678 in "acme/webapp" failed. Show me only the failed
+    step logs so I can debug what went wrong.
+  expectations:
+    - text: "Agent executes `gh run view 12345678 --repo acme/webapp --log-failed`"
+      oracle: pytest
+      pytest_path: tests/pytests/github/test_run_view_failed.py
+
+- name: api-query
+  prompt: |
+    Using the GitHub API, get the title, state, and author login for
+    pull request #55 in "acme/webapp".
+  expectations:
+    - text: "Agent executes `gh api repos/acme/webapp/pulls/55 --jq ...`"
+      oracle: pytest
+      pytest_path: tests/pytests/github/test_api_query.py
+
+- name: issue-list-json
+  prompt: |
+    List all open issues in "acme/webapp" and output them as JSON with
+    only the issue number and title. Format each as "NUMBER: TITLE".
+  expectations:
+    - text: "Agent executes `gh issue list --repo acme/webapp --json number,title --jq ...`"
+      oracle: pytest
+      pytest_path: tests/pytests/github/test_issue_list_json.py

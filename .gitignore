@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Skilltest results
+skilltest-results/
+**/agent-runs/
+
+# Local eval runs (may contain prompts, tool output, paths — do not commit)
+**/eval-results/
+
+# OS
+.DS_Store
+
+# Docker
+*.log
+
+# Environment
+.env

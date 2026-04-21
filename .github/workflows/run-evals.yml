@@ -1,0 +1,44 @@
+name: Run Skill Evals
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  LLM_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  eval-github-skill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install grading dependencies
+        run: pip install pytest pyyaml
+
+      - name: Build base Docker image
+        run: docker build -t openhands-eval:latest -f docker/Dockerfile.claude docker/
+
+      - name: Build GitHub skill image
+        run: docker build -t openhands-eval-github:latest -f skills/github-skill/Dockerfile .
+
+      - name: Run all GitHub skill evals
+        run: |
+          chmod +x run_all_evals.sh run_eval.sh
+          ./run_all_evals.sh skills/github-skill
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-skill-results
+          path: skills/github-skill/eval-results/

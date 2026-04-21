@@ -1,0 +1,36 @@
+# Base image for OpenHands skill evals.
+# Contains: Python 3.12, git, tmux, and the OpenHands SDK + tools.
+#
+# Build from repo root:
+#   docker build -t openhands-eval:latest -f docker/Dockerfile.claude docker/
+#
+# Note: The PyPI umbrella package `openhands-ai` currently fails pip resolution
+# (e2b / browsergym conflicts). Install `openhands-sdk` + `openhands-tools` instead.
+FROM python:3.12-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        bash coreutils ca-certificates curl git tmux \
+    && rm -rf /var/lib/apt/lists/*
+
+# OpenHands SDK (same stack as github.com/OpenHands/software-agent-sdk)
+ARG OPENHANDS_VERSION=1.11.5
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir \
+        "openhands-sdk==${OPENHANDS_VERSION}" \
+        "openhands-tools==${OPENHANDS_VERSION}" \
+        "pytest>=8.0" \
+        "pyyaml>=6.0"
+
+# Shared home dir (permissive for runtime UID switches)
+RUN mkdir -p /home/agent && chmod 1777 /home/agent
+ENV HOME=/home/agent
+
+WORKDIR /workspace
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY run_agent.py /usr/local/bin/run_agent.py
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["entrypoint.sh"]
