@@ -373,4 +373,6 @@ python tools/gen_skill_tests.py \
 
 ## License
 
-See repository license file. OpenHands SDK is subject to its own license terms.
+This project is licensed under the [MIT License](LICENSE).
+
+The [OpenHands Software Agent SDK](https://github.com/OpenHands/software-agent-sdk) is a separate dependency and is subject to its own license terms.
