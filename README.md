@@ -107,7 +107,7 @@ export JUDGE_MODEL="openai/gpt-4o-mini"
 ### 1. Clone and install host dependencies
 
 ```bash
-git clone https://github.com/<you>/skill-evals.git
+git clone https://github.com/Rganeshk/skill-evals.git
 cd skill-evals
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
@@ -314,6 +314,7 @@ skill-evals/
 ├── run_eval_generated.sh       # Single generated eval
 ├── run_all_evals_generated.sh  # Run full generated suite
 ├── pyproject.toml
+├── LICENSE                     # MIT
 └── .github/workflows/run-evals.yml
 ```
 
