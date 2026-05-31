@@ -21,7 +21,9 @@ RUN pip install --no-cache-dir --upgrade pip \
         "openhands-sdk==${OPENHANDS_VERSION}" \
         "openhands-tools==${OPENHANDS_VERSION}" \
         "pytest>=8.0" \
-        "pyyaml>=6.0"
+        "pyyaml>=6.0" \
+        "litellm>=1.50" \
+        "pydantic>=2.0"
 
 # Shared home dir (permissive for runtime UID switches)
 RUN mkdir -p /home/agent && chmod 1777 /home/agent

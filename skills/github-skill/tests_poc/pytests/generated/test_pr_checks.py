@@ -1,4 +1,4 @@
-"""Generated (POC) grader for: pr-checks.
+"""Generated grader for: pr-checks.
 
 Asserts the agent executed a terminal command containing required tokens.
 """

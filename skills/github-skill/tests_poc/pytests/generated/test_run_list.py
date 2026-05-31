@@ -1,4 +1,4 @@
-"""Generated (POC) grader for: run-list.
+"""Generated grader for: run-list.
 
 Asserts the agent executed a terminal command containing required tokens.
 """

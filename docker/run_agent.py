@@ -21,7 +21,7 @@ from openhands.sdk import LLM, Agent, LocalConversation, Message, TextContent
 from openhands.sdk.conversation.visualizer import DefaultConversationVisualizer
 from openhands.sdk.event import ActionEvent, ObservationEvent, Event
 from openhands.tools.preset.default import get_default_tools
-from openhands.tools.terminal.definition import TerminalAction, TerminalTool
+from openhands.tools.terminal.definition import TerminalAction
 
 # ── Configuration from environment ──────────────────────────────────
 LLM_MODEL = os.environ.get("LLM_MODEL", "openai/gpt-5.1-mini")

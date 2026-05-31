@@ -10,6 +10,7 @@ skilltest-results/
 
 # Local eval runs (may contain prompts, tool output, paths — do not commit)
 **/eval-results/
+**/eval-results-generated/
 
 # OS
 .DS_Store

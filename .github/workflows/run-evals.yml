@@ -22,8 +22,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install grading dependencies
-        run: pip install pytest pyyaml
+      - name: Install dependencies
+        run: pip install -e .
+
+      - name: Run unit tests
+        run: pytest tests/ -v --tb=short
 
       - name: Build base Docker image
         run: docker build -t openhands-eval:latest -f docker/Dockerfile.openhands docker/

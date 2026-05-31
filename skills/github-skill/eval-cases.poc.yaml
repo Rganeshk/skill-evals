@@ -20,4 +20,10 @@ eval_cases:
         all: ["gh", "run", "list", "--limit", "5", "--repo", "acme/webapp"]
     forbid:
       - "git push"
+    # Optional override — generator auto-builds llm_judge when omitted
+    llm_judge:
+      min_score: 0.75
+      rubric: |
+        The agent should list recent CI workflow runs for acme/webapp using
+        gh run list with --limit 5 and --repo acme/webapp, then summarize results.
 

@@ -1,4 +1,4 @@
-"""Generated (POC) shared fixtures for skill grading tests.
+"""Generated shared fixtures for skill grading tests.
 
 These fixtures load the OpenHands event log produced by `run_agent.py`.
 """

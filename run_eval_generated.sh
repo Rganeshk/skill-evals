@@ -13,27 +13,20 @@
 #   - Writes results:   <skill-dir>/eval-results-generated/<test-name>/
 set -eu -o pipefail
 
-pick_python_with_yaml() {
-    for cmd in python3 python; do
-        if command -v "$cmd" >/dev/null 2>&1 && "$cmd" -c "import yaml" 2>/dev/null; then
-            echo "$cmd"
-            return 0
-        fi
-    done
-    return 1
-}
-if ! PYTHON_CMD=$(pick_python_with_yaml); then
-    echo "ERROR: No python3/python on PATH can import yaml (PyYAML)." >&2
-    echo "Install with: python -m pip install pyyaml" >&2
-    exit 1
-fi
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/lib/common.sh
+source "$REPO_ROOT/scripts/lib/common.sh"
+
+require_python_with_yaml
+require_docker
 
 SKILL_DIR="${1:?Usage: $0 <skill-dir> <test-name>}"
 TEST_NAME="${2:?Usage: $0 <skill-dir> <test-name>}"
 
-REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
-SKILL_DIR="$REPO_ROOT/$SKILL_DIR"
+AGENT_IMAGE="${AGENT_IMAGE:-openhands-eval-github:latest}"
+GRADE_IMAGE="${GRADE_IMAGE:-openhands-eval:latest}"
 
+SKILL_DIR="$REPO_ROOT/$SKILL_DIR"
 TESTS_ROOT="${TESTS_ROOT:-$SKILL_DIR/tests_poc}"
 RESULTS_BASE="${RESULTS_BASE:-$SKILL_DIR/eval-results-generated}"
 RESULTS_DIR="$RESULTS_BASE/$TEST_NAME"
@@ -43,6 +36,9 @@ if [ ! -f "$SKILL_DIR/SKILL.md" ]; then
     exit 1
 fi
 
+require_docker_image "$AGENT_IMAGE"
+require_docker_image "$GRADE_IMAGE"
+
 TESTS_YAML="$TESTS_ROOT/tests.yaml"
 if [ ! -f "$TESTS_YAML" ]; then
     echo "ERROR: $TESTS_YAML not found" >&2
@@ -51,6 +47,7 @@ if [ ! -f "$TESTS_YAML" ]; then
     exit 1
 fi
 
+log_stage "Parsing prompt for generated test: $TEST_NAME"
 PROMPT=$("$PYTHON_CMD" -c "
 import yaml, sys
 with open('$TESTS_YAML') as f:
@@ -67,12 +64,16 @@ mkdir -p "$RESULTS_DIR"
 echo "$PROMPT" > "$RESULTS_DIR/prompt.txt"
 cp "$SKILL_DIR/SKILL.md" "$RESULTS_DIR/skill.md"
 
-echo "=== Running generated eval: $TEST_NAME ==="
+log_stage "Running generated eval: $TEST_NAME"
 echo "Skill:      $SKILL_DIR"
 echo "Tests root: $TESTS_ROOT"
 echo "Prompt:     ${PROMPT:0:100}..."
 echo "Results:    $RESULTS_DIR"
-echo ""
+
+if [ -z "${LLM_API_KEY:-}" ]; then
+    echo "ERROR: LLM_API_KEY is required" >&2
+    exit 1
+fi
 
 GH_AUTH_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 if [ -z "$GH_AUTH_TOKEN" ]; then
@@ -94,37 +95,41 @@ if [ -z "$PYTEST_GRADER" ]; then
     exit 1
 fi
 
+log_stage "Agent execution (Docker: $AGENT_IMAGE)"
 docker run --rm \
     -v "$RESULTS_DIR/prompt.txt:/workspace/prompt.txt:ro" \
     -v "$RESULTS_DIR/skill.md:/workspace/skill.md:ro" \
     -v "$RESULTS_DIR:/workspace/output" \
-    -e "LLM_API_KEY=${LLM_API_KEY:?LLM_API_KEY is required}" \
+    -e "LLM_API_KEY=${LLM_API_KEY}" \
     -e "LLM_MODEL=${LLM_MODEL:-openai/gpt-4o-mini}" \
     -e "LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}" \
     -e "MAX_ITERATIONS=${MAX_ITERATIONS:-50}" \
     -e "GITHUB_TOKEN=${GH_AUTH_TOKEN}" \
     -e "GH_TOKEN=${GH_AUTH_TOKEN}" \
-    openhands-eval-github:latest
+    "$AGENT_IMAGE"
 
-echo ""
-echo "=== Agent run complete. Grading... ==="
-echo ""
+if [ ! -f "$RESULTS_DIR/events.json" ]; then
+    echo "ERROR: Agent did not produce events.json at $RESULTS_DIR/events.json" >&2
+    exit 1
+fi
+
+log_stage "Agent run complete — grading with pytest"
 
 _skill_root="${SKILL_DIR%/}"
 PYTEST_REL="${PYTEST_GRADER#"${_skill_root}/"}"
-GRADE_IMAGE="${GRADE_IMAGE:-openhands-eval:latest}"
+GRADE_EXIT=0
 
 if [ "${GRADE_ON_HOST:-}" = "1" ]; then
-    echo "=== Grading (host pytest) ==="
+    echo "Grading mode: host pytest"
     EVENTS_JSON="$RESULTS_DIR/events.json" \
     SUMMARY_TXT="$RESULTS_DIR/summary.txt" \
     STDOUT_TXT="$RESULTS_DIR/stdout.txt" \
         "$PYTHON_CMD" -m pytest "$PYTEST_GRADER" \
             -v --tb=short \
             -o "cache_dir=$RESULTS_DIR/.pytest_cache" \
-            2>&1 | tee "$RESULTS_DIR/grading.txt"
+            2>&1 | tee "$RESULTS_DIR/grading.txt" || GRADE_EXIT=$?
 else
-    echo "=== Grading (Docker: $GRADE_IMAGE) ==="
+    echo "Grading mode: Docker ($GRADE_IMAGE)"
     docker run --rm \
         --entrypoint bash \
         -e PYTHONDONTWRITEBYTECODE=1 \
@@ -135,10 +140,33 @@ else
         -v "$RESULTS_DIR:/out" \
         -w /skill \
         "$GRADE_IMAGE" \
-        -c 'set -o pipefail && python -m pytest "'"$PYTEST_REL"'" -v --tb=short -o cache_dir=/out/.pytest_cache 2>&1 | tee /out/grading.txt'
+        -c 'set -o pipefail && python -m pytest "'"$PYTEST_REL"'" -v --tb=short -o cache_dir=/out/.pytest_cache 2>&1 | tee /out/grading.txt' \
+        || GRADE_EXIT=$?
 fi
 
-echo ""
-echo "=== Grading complete ==="
+log_stage "Grading complete"
 echo "Results saved to: $RESULTS_DIR"
 
+if [ "$GRADE_EXIT" -ne 0 ]; then
+    echo "ERROR: Pytest grading failed (exit code $GRADE_EXIT)" >&2
+    exit "$GRADE_EXIT"
+fi
+
+JUDGE_EXIT=0
+if [ "${SKIP_LLM_JUDGE:-}" != "1" ]; then
+    log_stage "LLM-as-a-Judge validation"
+    if "$PYTHON_CMD" "$REPO_ROOT/tools/llm_judge.py" \
+        --results-dir "$RESULTS_DIR" \
+        --tests-yaml "$TESTS_YAML" \
+        --test-name "$TEST_NAME" \
+        2>&1 | tee "$RESULTS_DIR/judge.txt"; then
+        :
+    else
+        JUDGE_EXIT=$?
+    fi
+fi
+
+if [ "$JUDGE_EXIT" -ne 0 ]; then
+    echo "ERROR: LLM judge validation failed (exit code $JUDGE_EXIT)" >&2
+    exit "$JUDGE_EXIT"
+fi

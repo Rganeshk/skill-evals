@@ -16,34 +16,29 @@
 #   LLM_MODEL       — model name (default: openai/gpt-4o-mini; must match LLM_BASE_URL provider)
 #   LLM_API_KEY     — API key for the LLM provider (required)
 #   LLM_BASE_URL    — API base (default: https://api.openai.com/v1). Use https://api.anthropic.com for Claude.
-#   MAX_ITERATIONS   — max agent steps (default: 50)
+#   MAX_ITERATIONS  — max agent steps (default: 50)
 #   GITHUB_TOKEN or GH_TOKEN — passed into the container as both names (gh reads GH_TOKEN)
 #   GRADE_IMAGE     — image for pytest grading (default: openhands-eval:latest; needs pytest in image)
 #   GRADE_ON_HOST=1 — set to run pytest on the host instead of Docker (debug only)
+#   SKIP_LLM_JUDGE=1  — skip LLM-as-a-Judge phase
+#   JUDGE_MODEL       — judge model (default: same as LLM_MODEL)
+#   JUDGE_API_KEY     — judge API key (default: LLM_API_KEY)
 set -eu -o pipefail
 
-# Host may have PyYAML on `python` (conda) but not on `python3` (system) — pick one that works.
-pick_python_with_yaml() {
-    for cmd in python3 python; do
-        if command -v "$cmd" >/dev/null 2>&1 && "$cmd" -c "import yaml" 2>/dev/null; then
-            echo "$cmd"
-            return 0
-        fi
-    done
-    return 1
-}
-if ! PYTHON_CMD=$(pick_python_with_yaml); then
-    echo "ERROR: No python3/python on PATH can import yaml (PyYAML)." >&2
-    echo "Install for the same interpreter you use to run this script, e.g.:" >&2
-    echo "  python3 -m pip install pyyaml   OR   python -m pip install pyyaml" >&2
-    exit 1
-fi
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/lib/common.sh
+source "$REPO_ROOT/scripts/lib/common.sh"
+
+require_python_with_yaml
+require_docker
 
 SKILL_DIR="${1:?Usage: $0 <skill-dir> <test-name>}"
 TEST_NAME="${2:?Usage: $0 <skill-dir> <test-name>}"
 
+AGENT_IMAGE="${AGENT_IMAGE:-openhands-eval-github:latest}"
+GRADE_IMAGE="${GRADE_IMAGE:-openhands-eval:latest}"
+
 # ── Resolve paths ───────────────────────────────────────────────────
-REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 SKILL_DIR="$REPO_ROOT/$SKILL_DIR"
 RESULTS_DIR="$SKILL_DIR/eval-results/$TEST_NAME"
 
@@ -52,6 +47,9 @@ if [ ! -f "$SKILL_DIR/SKILL.md" ]; then
     exit 1
 fi
 
+require_docker_image "$AGENT_IMAGE"
+require_docker_image "$GRADE_IMAGE"
+
 # ── Parse the test prompt from tests.yaml ───────────────────────────
 TESTS_YAML="$SKILL_DIR/tests/tests.yaml"
 if [ ! -f "$TESTS_YAML" ]; then
@@ -59,7 +57,7 @@ if [ ! -f "$TESTS_YAML" ]; then
     exit 1
 fi
 
-# Extract prompt for the named test (requires PyYAML on PYTHON_CMD)
+log_stage "Parsing prompt for test: $TEST_NAME"
 PROMPT=$("$PYTHON_CMD" -c "
 import yaml, sys
 with open('$TESTS_YAML') as f:
@@ -77,13 +75,16 @@ mkdir -p "$RESULTS_DIR"
 echo "$PROMPT" > "$RESULTS_DIR/prompt.txt"
 cp "$SKILL_DIR/SKILL.md" "$RESULTS_DIR/skill.md"
 
-echo "=== Running eval: $TEST_NAME ==="
-echo "Skill:  $SKILL_DIR"
-echo "Prompt: ${PROMPT:0:100}..."
+log_stage "Running eval: $TEST_NAME"
+echo "Skill:   $SKILL_DIR"
+echo "Prompt:  ${PROMPT:0:100}..."
 echo "Results: $RESULTS_DIR"
-echo ""
 
-# gh CLI expects GH_TOKEN; also accept GITHUB_TOKEN from the host.
+if [ -z "${LLM_API_KEY:-}" ]; then
+    echo "ERROR: LLM_API_KEY is required" >&2
+    exit 1
+fi
+
 GH_AUTH_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 if [ -z "$GH_AUTH_TOKEN" ]; then
     echo "WARNING: GITHUB_TOKEN (or GH_TOKEN) is unset — gh inside Docker will not authenticate." >&2
@@ -106,39 +107,42 @@ if [ -z "$PYTEST_GRADER" ]; then
 fi
 
 # ── Run the agent in Docker ────────────────────────────────────────
+log_stage "Agent execution (Docker: $AGENT_IMAGE)"
 docker run --rm \
     -v "$RESULTS_DIR/prompt.txt:/workspace/prompt.txt:ro" \
     -v "$RESULTS_DIR/skill.md:/workspace/skill.md:ro" \
     -v "$RESULTS_DIR:/workspace/output" \
-    -e "LLM_API_KEY=${LLM_API_KEY:?LLM_API_KEY is required}" \
+    -e "LLM_API_KEY=${LLM_API_KEY}" \
     -e "LLM_MODEL=${LLM_MODEL:-openai/gpt-4o-mini}" \
     -e "LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}" \
     -e "MAX_ITERATIONS=${MAX_ITERATIONS:-50}" \
     -e "GITHUB_TOKEN=${GH_AUTH_TOKEN}" \
     -e "GH_TOKEN=${GH_AUTH_TOKEN}" \
-    openhands-eval-github:latest
+    "$AGENT_IMAGE"
 
-echo ""
-echo "=== Agent run complete. Grading... ==="
-echo ""
+if [ ! -f "$RESULTS_DIR/events.json" ]; then
+    echo "ERROR: Agent did not produce events.json at $RESULTS_DIR/events.json" >&2
+    exit 1
+fi
+
+log_stage "Agent run complete — grading with pytest"
 
 # ── Grade with pytest (Docker by default; matches agent environment) ─
 _skill_root="${SKILL_DIR%/}"
 PYTEST_REL="${PYTEST_GRADER#"${_skill_root}/"}"
-GRADE_IMAGE="${GRADE_IMAGE:-openhands-eval:latest}"
+GRADE_EXIT=0
 
 if [ "${GRADE_ON_HOST:-}" = "1" ]; then
-    echo "=== Grading (host pytest) ==="
+    echo "Grading mode: host pytest"
     EVENTS_JSON="$RESULTS_DIR/events.json" \
     SUMMARY_TXT="$RESULTS_DIR/summary.txt" \
     STDOUT_TXT="$RESULTS_DIR/stdout.txt" \
         "$PYTHON_CMD" -m pytest "$PYTEST_GRADER" \
             -v --tb=short \
             -o "cache_dir=$RESULTS_DIR/.pytest_cache" \
-            2>&1 | tee "$RESULTS_DIR/grading.txt"
+            2>&1 | tee "$RESULTS_DIR/grading.txt" || GRADE_EXIT=$?
 else
-    echo "=== Grading (Docker: $GRADE_IMAGE) ==="
-    # shellcheck disable=SC2016
+    echo "Grading mode: Docker ($GRADE_IMAGE)"
     # cache_dir on /out — /skill is read-only (avoids PytestCacheWarning)
     docker run --rm \
         --entrypoint bash \
@@ -150,9 +154,34 @@ else
         -v "$RESULTS_DIR:/out" \
         -w /skill \
         "$GRADE_IMAGE" \
-        -c 'set -o pipefail && python -m pytest "'"$PYTEST_REL"'" -v --tb=short -o cache_dir=/out/.pytest_cache 2>&1 | tee /out/grading.txt'
+        -c 'set -o pipefail && python -m pytest "'"$PYTEST_REL"'" -v --tb=short -o cache_dir=/out/.pytest_cache 2>&1 | tee /out/grading.txt' \
+        || GRADE_EXIT=$?
 fi
 
-echo ""
-echo "=== Grading complete ==="
+log_stage "Grading complete"
 echo "Results saved to: $RESULTS_DIR"
+
+if [ "$GRADE_EXIT" -ne 0 ]; then
+    echo "ERROR: Pytest grading failed (exit code $GRADE_EXIT)" >&2
+    exit "$GRADE_EXIT"
+fi
+
+# ── LLM-as-a-Judge (optional; configured per test in tests.yaml) ─────
+JUDGE_EXIT=0
+if [ "${SKIP_LLM_JUDGE:-}" != "1" ]; then
+    log_stage "LLM-as-a-Judge validation"
+    if "$PYTHON_CMD" "$REPO_ROOT/tools/llm_judge.py" \
+        --results-dir "$RESULTS_DIR" \
+        --tests-yaml "$TESTS_YAML" \
+        --test-name "$TEST_NAME" \
+        2>&1 | tee "$RESULTS_DIR/judge.txt"; then
+        :
+    else
+        JUDGE_EXIT=$?
+    fi
+fi
+
+if [ "$JUDGE_EXIT" -ne 0 ]; then
+    echo "ERROR: LLM judge validation failed (exit code $JUDGE_EXIT)" >&2
+    exit "$JUDGE_EXIT"
+fi
