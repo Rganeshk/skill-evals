@@ -7,12 +7,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
-env:
-  LLM_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
 jobs:
-  eval-github-skill:
+  # Always runs on push/PR — no API keys required.
+  test-and-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +24,45 @@ jobs:
 
       - name: Run unit tests
         run: pytest tests/ -v --tb=short
+
+      - name: Build base Docker image
+        run: docker build -t openhands-eval:latest -f docker/Dockerfile.openhands docker/
+
+      - name: Build GitHub skill image
+        run: docker build -t openhands-eval-github:latest -f skills/github-skill/Dockerfile .
+
+      - name: Smoke test pytest graders in Docker
+        run: |
+          mkdir -p /tmp/smoke-out
+          echo '[{"action_type":"terminal","command":"gh pr checks 42 --repo acme/webapp"}]' > /tmp/smoke-out/events.json
+          touch /tmp/smoke-out/summary.txt /tmp/smoke-out/stdout.txt
+          docker run --rm --entrypoint bash \
+            -e EVENTS_JSON=/out/events.json \
+            -e SUMMARY_TXT=/out/summary.txt \
+            -e STDOUT_TXT=/out/stdout.txt \
+            -v "${{ github.workspace }}/skills/github-skill:/skill:ro" \
+            -v /tmp/smoke-out:/out \
+            -w /skill \
+            openhands-eval:latest \
+            -c 'python -m pytest tests/pytests/github/test_pr_checks.py -v --tb=short -o cache_dir=/out/.pytest_cache'
+
+  # Full agent evals — manual only (requires LLM + GitHub secrets, incurs API cost).
+  e2e-eval:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    env:
+      LLM_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -e .
 
       - name: Build base Docker image
         run: docker build -t openhands-eval:latest -f docker/Dockerfile.openhands docker/

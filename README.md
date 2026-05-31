@@ -323,13 +323,10 @@ skill-evals/
 
 GitHub Actions (`.github/workflows/run-evals.yml`) runs on every push/PR to `main`:
 
-1. Builds base and skill Docker images
-2. Executes `./run_all_evals.sh skills/github-skill`
-3. Uploads `eval-results/` as a workflow artifact
+1. **`test-and-build` job** (automatic): `pip install -e .` → unit tests → Docker image builds → smoke pytest in container
+2. **`e2e-eval` job** (manual via **Actions → Run workflow**): full `./run_all_evals.sh` with live LLM agent — requires `ANTHROPIC_API_KEY` secret
 
-Required repository secrets: `ANTHROPIC_API_KEY` (mapped to `LLM_API_KEY` in the workflow — adapt for your provider), `GITHUB_TOKEN` (provided automatically for public repos).
-
-LLM judge runs automatically on cases with `llm_judge` configured (`pr-checks`, `api-query`). To skip judge in CI: set `SKIP_LLM_JUDGE: "1"` in the workflow env.
+For manual E2E runs, add repository secret **`ANTHROPIC_API_KEY`** (mapped to `LLM_API_KEY`). `GITHUB_TOKEN` is provided automatically for public repos.
 
 Run unit tests locally (no Docker or API keys):
 
